@@ -1,0 +1,88 @@
+#version 410
+
+uniform vec3 u_intensity;        // source intensity (RGB)
+uniform vec3 u_ambientIntensity; // ambient intensity (RGB)
+
+uniform float u_blendHeight; //height to start to blend between sand and grass
+uniform float u_blendAmount; //amount of height to stagger blend between
+
+uniform vec3 u_diffuseMaterial;  // diffuse material cofficients (RGB)
+
+uniform sampler2D u_grassTexture;
+uniform sampler2D u_sandTexture;
+
+uniform vec4 u_lightDirection; // light direction (used for directional light, and facing for point lights)
+uniform vec4 u_lightPosition;  // light position (passed as all 0s if the light is directional)
+
+uniform vec2 u_UVcoords;
+
+uniform int u_mode; //0 is standard, 1 is normals, 2 is UVs
+
+in vec2 v_texcoord;	// UV 
+
+in vec4 v_normal;                // interpolated surface normal (WORLD)
+in vec4 v_position;              // interpolated fragment position (WORLD)
+
+
+const float GAMMA = 2.2;
+const float LIGHT_ANGLE = 0.3f;
+
+
+layout(location = 0) out vec4 o_colour;
+
+void main() {
+	vec4 n = normalize(v_normal);
+	vec4 output = vec4(0);
+	if (u_mode == 1){ //Normals debug mode
+		output = vec4(n.x, n.y, n.z, 1);
+	}
+	else if (u_mode == 2){ //UVs debug mode
+		float u = mod(v_texcoord.x, 1);
+		float v = mod(v_texcoord.y, 1);
+	
+    	output = vec4(u, v, 0, 1);
+	}
+	else {
+		// normalise the vectors
+	    vec4 s = vec4(0,0,0,0);
+	    if (u_lightPosition.w == 0){ //If position is passed as a vector, the light is directional
+	    	s = normalize(u_lightDirection); //Treat it as directional and just take the direction
+	    } 
+	    else {
+	    	s = normalize(u_lightPosition - v_position); //Otherwise calculate it's relative vector direction.
+	    }
+	
+	    vec4 r = vec4(0);
+	    
+	    vec3 sandColour = texture(u_sandTexture, v_texcoord) .rgb;
+	    vec3 grassColour = texture(u_grassTexture, v_texcoord) .rgb;
+	    
+	    vec3 material = sandColour;
+	    
+	    if (v_position.y > u_blendHeight){
+	    	if (v_position.y - u_blendHeight < u_blendAmount){
+		    	float blendAmount = (v_position.y - u_blendHeight)/u_blendAmount;
+		    	material = (grassColour * blendAmount) + (sandColour * (1-blendAmount));
+	    	}
+	    	else {
+	    		material = grassColour;
+	    	}
+	    }
+	        
+	    material = pow(material, vec3(GAMMA)); // Gamma correction B > I
+	
+	    vec3 ambient = u_ambientIntensity * material; //Alter the ambient intensity to match the material.
+	    vec3 intensity = u_intensity;
+	    if (dot(normalize(u_lightDirection), s) < LIGHT_ANGLE){ //If the surface is located away from the light source enough, receive no light 
+	    	intensity = u_ambientIntensity;
+	    } 
+	    vec3 diffuse = intensity * material * max(0, dot(s,n)); //Lamberts diffuse
+	
+		vec3 finalIntensity = ambient + diffuse;
+		vec3 brightness = pow(finalIntensity, vec3(1./GAMMA)); // gamma coorection I > B
+		
+	    output = vec4(brightness, 1);
+	}
+	
+    o_colour = output;
+}
